@@ -1,3 +1,29 @@
 theme: minima
-title: Sasha's webpage
-description: Testing
+title: Sasha's page
+# description: _config Description
+permalink: pretty
+author: Sasha Monin
+name: moninalexander
+email: moninalexander@gmail.com
+
+
+plugins:
+  - jekyll-mermaid
+
+mermaid:
+  src: "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"
+
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  math_engine: mathjax
+  syntax_highlighter: rouge
+  fenced_code_blocks: true
+
+header_pages:
+  - index.md
+  - physics/index.md
+  - ML/index.md
