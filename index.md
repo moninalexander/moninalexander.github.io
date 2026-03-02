@@ -1,9 +1,11 @@
 ---
 layout: home
-title:  Welcome to my personal web page
+title:  Home
 ---
 
-## Here you can find my notes on various topics
+## Welcome to my personal web page
+
+Here you can find my notes on various topics
 
 ### [ABC of Machine Learning](ML/index)
 
