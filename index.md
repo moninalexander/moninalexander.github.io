@@ -1,5 +1,6 @@
 ---
 layout: home
+title:  Welcome to my personal web page
 ---
 
 ## Here you can find my notes on various topics
