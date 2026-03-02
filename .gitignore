@@ -6,3 +6,7 @@ _site/
 .jekyll-cache/
 .bundle/
 vendor/
+
+Gemfile
+Gemfile.lock
+
