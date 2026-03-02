@@ -3,44 +3,63 @@ layout: page
 title: "MNIST: Fully connected vs Convolutional"
 ---
 
+## Intro
+
+The `MNIST` dataset is sufficiently simple and can be considered solved, in the sense that relatively simple architectures achieve very high accuracy, outperforming humans, whose accuracy is about [`97.5-98%`](https://en.wikipedia.org/wiki/MNIST_database).Working with this dataset is therefore primarily educational. 
+
+In this note, I compare the performance of fully connected neural networks `FC` and convolutional neural networks `CNN` on the `MNIST` dataset. I deliberately restrict attention to simple models and avoid data augmentation in order to isolate the effect of the architecture.
+
+This note is not intended as a deep dive into Machine Learning `ML`, but rather as an introductory hands-on project to become familiar with `PyTorch`, `tensors`, model construction, and training. The presentation follows a notebook style with minimal commentary. See [https://github.com/moninalexander/dl-lightning](https://github.com/moninalexander/dl-lightning) for more detail.
+
+
 
 ## Importing libraries
 
-Importing necessary libraries
+For this project, we need to import the following libraries
 
 ```python
 import torch
-from torch.utils.data import DataLoader
-from torch import nn
-import torchmetrics
-from torchinfo import summary # For creating models' summaries
-from torchvision import datasets
+from torchvision import datasets # Getting the data
 from torchvision.transforms import ToTensor, Normalize, Compose # For converting images to tensors
+from torch.utils.data import DataLoader # Providing the data in batches
 import matplotlib.pyplot as plt # For plotting
+from torch import nn # Necessary building blocks for our models
+from torchinfo import summary # For creating models' summaries
 import time
 ```
 
-## Preparing Data
+`datasets` allows us to download and manage the `MNIST` dataset. The MNIST training set contains 60000 samples, and the test set contains 10000 samples. Each sample is a tuple of the form `(img, label)`, where `img` is a 28 by 28 grayscale (one-channel) image, and label is an integer in `{0,...,9}`.
 
-Data structure for MNIST: training set is 60000 tuples, test set is 10000 tuples. 
+`ToTensor`, `Normalize`, `Compose` are used to convert the images to `PyTorch` tensors and rescale them using the global mean `0.1307` and standard deviation `0.3081`, computed from the training set.
 
-Each tuple is a $$28\times 28$$ tensor and  1 of 100 labels, i.e. $$(\text{img}(1\times32\times32), \text{label})$$
+`DataLoader` splits the dataset into batches, shuffles them if needed, and provides them during training and evaluation.
 
-`ToTensor()` is necessary to convert images to tensors
 
-`Normalize` is used to bring all samples to the global mean `0.1307` and standard deviation `0.3081` computed without `Normalize`
 
-### Importing Data
+
+
+## Preparing the data
+
+First we download the dataset and store it locally. If the dataset has already been downloaded, the local copy will be used automatically.
+
 
 ```python
 img_transform = Compose([ToTensor(), Normalize(0.1307,0.3081)])
-train_data=datasets.MNIST(root='../data',
-            download=True,train=True, transform=ToTensor())
-test_data=datasets.MNIST(root='../data',
-            download=True,train=False, transform=ToTensor())
+train_data=datasets.MNIST(
+    root='../data',
+    download=True,
+    train=True, 
+    transform=img_transform
+)
+test_data=datasets.MNIST(
+    root='../data',
+    download=True,
+    train=False, 
+    transform=img_transform
+)
 ```
 
-#### Global Parameters
+Now that the data is ready, we extract a few global parameters that will be used throughout the note:
 
 ```python
 NUM_CLASSES = len(train_data.classes)
@@ -48,12 +67,12 @@ TRAIN_SIZE = len(train_data)
 TEST_SIZE = len(test_data)
 X, _ = train_data[0]
 IM_CH = X.shape[0]
-IM_HIHGT = X.shape[1]
+IM_HIGHT = X.shape[1]
 IM_WIDTH = X.shape[2]
 BATCH_SIZE = 64
 ```
 
-### Creating Dataloaders
+We use the `DataLoader` to split both the training and test datasets into batches of size `BATCH_SIZE = 64`
 
 ```python
 train_loader = DataLoader(train_data, shuffle=True, batch_size=BATCH_SIZE)
@@ -66,7 +85,7 @@ print(train_loader.dataset.data.shape)
 torch.Size([60000, 28, 28])
 ```
 
-## Plotting examples
+Finally, we plot several example images from the dataset. For more details on plotting with `matplot.pyplot` see a short note on [Pyplot](/ML/pyplot/)
 
 
 ```python
@@ -82,9 +101,73 @@ plt.show()
 
 
 
+## Models
+
+The fully connected neural network has two hidden layers with `n1` and `n2` neurons, respectively
+
+```python
+class FC_MNIST_2(nn.Module):
+    def __init__(self, n1, n2):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.box = nn.Sequential(
+            nn.Linear(IM_HIGHT*IM_WIDTH, n1),
+            nn.ReLU(),
+            nn.Linear(n1 ,n2),
+            nn.ReLU(),
+            nn.Linear(n2, NUM_CLASSES)
+        )
+    def forward(self, x):
+        x = self.flatten(x)
+        logits = self.box(x)
+        return logits
+```
+
+The convolutional neural network combines two `nn.Conv2d` layers and two `nn.MaxPool2d` layers, followed by a single fully connected layer
+
+```python
+class Conv_MNIST_21(nn.Module):
+    def __init__(self, ch1, ch2):
+        super().__init__()
+        self.feature_extractor = nn.Sequential(
+            nn.Conv2d(IM_CH, ch1, kernel_size=(3, 3), padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+            nn.Conv2d(ch1, ch2, kernel_size=(3, 3), padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2)
+        )
+        with torch.no_grad():
+            X = torch.randn(1, IM_CH, IM_HIGHT, IM_WIDTH)
+            self.last_numel = self.feature_extractor(X).numel()
+        
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(self.last_numel,NUM_CLASSES)
+        )
+    def forward(self, x):
+        x = self.feature_extractor(x)
+        x = self.classifier(x)
+        return x
+```
+
+Even though we could vary the filter size, we keep it fixed at $$3 \times 3$$. Similarly, the
+`MaxPooling` layers use filters of size $$2 \times 2$$. We only vary the number of channels in the two convolutional layers.
+
+Note that we could compute the output size explicitly using the formula that relates the input size, kernel sizes, padding, and pooling. Instead, we determine the required number of features dynamically by passing a random tensor of the same size through the `feature_extractor` and calling `numel()`.
+
+
+
+For more details on building models, see [Building blocks...](/ML/building_blocks/)
+
+
+
 ## Training
 
-Computing the accuracy we take into account that the default `reduction` for the `CrossEntropyLoss` function is `reduction = mean`, meaning that the batch average is computed for the loss function. Since not all batches are equal, the average over all batches will not be equal to the average over all samples. Since we need the latter, we multiply the `CrossEntropyLoss` by the batch size and accumulate it.
+Now we come to training. For every model, we will be providing data in batches of `BATCH_SIZE = 64`, computing gradients and backpropagating.
+
+When computing the accuracy, we take into account that the default `reduction` for the `CrossEntropyLoss` function is `mean`, meaning that the loss is averaged over the batch. Since not all batches have the same size, the average over batches is not equal to the average over all samples. Since we need the latter, we multiply the `CrossEntropyLoss` by the batch size and accumulate the result.
+
 
 ```python
 def train_run(data_loader, model, loss_fn, optimizer):
@@ -118,7 +201,9 @@ def test_run(data_loader, model, loss_fn):
             total+=len(y)
     return sum(batch_loss)/TEST_SIZE, correct/total
 ```
-The test accuracy is `quantized` in units of `0.0001`, since the number of test samples is `10000`. We take `threshold` for improvement smaller than that.
+The test accuracy is quantized in units of `0.0001`, since the test set contains `10000` samples. We therefore take a `threshold` for improvement smaller than this value.
+
+
 
 ```python
 LEARNING_RATE = 0.001
@@ -127,7 +212,7 @@ optimizer_fc = torch.optim.Adam(model_fc.parameters(),lr=LEARNING_RATE)
 scheduler_fc = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer_fc, mode="max",patience=5, factor=0.5, threshold=0.0)
 ```
 
-We define the accuracy and loss histories
+To keep track of the `train` and `test` accuracies and losses we store them in separate python lists. For that, we define the accuracy and loss histories
 
 
 ```python
@@ -137,7 +222,7 @@ train_acc_fc = []
 train_loss_fc = []
 ```
 
-and initiate the training with
+and initiate training with
 
 
 ```python
@@ -159,36 +244,9 @@ for t in range(epochs):
 ```
 
 
-## Fully connected models 
+### Fully connected models
 
-See details in [Building blocks...](/ML/building_blocks/)
-
-All models will will only have two hidden layers with `n1` and `n2` neurons correspondigly.
-
-
-#### Without `BatchNorm`
-
-We start with models without `BatchNorm`. 
-
-```python
-class FC_MNIST_2(nn.Module):
-    def __init__(self, n1, n2):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        self.box = nn.Sequential(
-            nn.Linear(IM_HIHGT*IM_WIDTH, n1),
-            nn.ReLU(),
-            nn.Linear(n1 ,n2),
-            nn.ReLU(),
-            nn.Linear(n2, NUM_CLASSES)
-        )
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.box(x)
-        return logits
-```
-
-Let's see the results for several sets of parameters
+Let us examine the results for several choices of parameters.
 
 #### Tiny: (2,2)
 
@@ -198,7 +256,7 @@ We deliberately start with ridiculously small numbers of neurons
 model_fc = FC_MNIST_2(1,1)
 ```
 
-The training results in
+The training results are as follows
 
 <span style="color: grey;">Out:</span>
 ```text
@@ -221,10 +279,12 @@ Epoch     Model     Test Accuracy       Test Loss      LR
 Time      36.3 s     
 ```
 
-The simplicity of this model is deceptive. Random guessing would result in an accuracy of about 10%. This model produces a significantly better result: it classifies correctly roughly every third image. The reason is that the model has a sufficiently large number of trainable parameters `807`:
+The simplicity of this model is deceptive. 
+
+Random guessing would result in an accuracy of about 10%. This model performs significantly better: it correctly classifies roughly one third of the images. The reason is that the model has a sufficiently large number of trainable parameters `807`:
 
 ```python
-summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIHGT,IM_WIDTH))
+summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIGHT,IM_WIDTH))
 ```
 
 
@@ -258,11 +318,11 @@ Estimated Total Size (MB): 0.21
 
 #### Unnecessary large
 
-As an opposite extreme, we consider a model with `512` neurons in each hidden layer. This model has a whopping `670k` trainable parameters
+As the opposite extreme, we consider a model with `512` neurons in each hidden layer. This model has a whopping `670k` trainable parameters.
 
 ```python
 model_fc = FC_MNIST_2(512,512)
-summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIHGT,IM_WIDTH))
+summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIGHT,IM_WIDTH))
 ```
 
 <span style="color: grey;">Out:</span>
@@ -291,7 +351,7 @@ Estimated Total Size (MB): 3.41
 ==========================================================================================
 ```
 
-The accuracy virtually platoes after around 25 epochs
+The accuracy virtually plateaus after around 25 epochs
 
 <span style="color: grey;">Out:</span>
 ```text
@@ -323,68 +383,12 @@ Epoch     Model     Test Accuracy       Test Loss      LR
 Time     171.6 s
 ```
 
+In fact, a smaller model with around `100k` trainable parameters 
 
-Let's see if adding `BatchNorm` can improve the result
-
-
-```python
-class FC_MNIST_2(nn.Module):
-    def __init__(self, n1, n2):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        self.box = nn.Sequential(
-            nn.Linear(IM_HIHGT*IM_WIDTH, n1),
-            nn.ReLU(),
-            nn.BatchNorm1d(n1),
-            nn.Linear(n1 ,n2),
-            nn.ReLU(),
-            nn.BatchNorm1d(n2),
-            nn.Linear(n2, NUM_CLASSES)
-        )
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.box(x)
-        return logits
-```
-We do not print the summary for this model, since it is virtually identical to the previous one.
-With the same `512` neurons per hidden layer we obtain
-
-<span style="color: grey;">Out:</span>
-```text
-======================================================================
-Epoch     Model     Test Accuracy       Test Loss      LR             
-======================================================================
-0         FC        0.9675              0.1125         0.001000       
-======================================================================
-1         FC        0.9671              0.1243         0.001000       
-======================================================================
-.
-.
-.
-======================================================================
-27        FC        0.9817              0.2888         0.001000       
-======================================================================
-28        FC        0.9814              0.1721         0.001000       
-======================================================================
-29        FC        0.9813              0.2776         0.001000       
-======================================================================
-.
-.
-.
-======================================================================
-48        FC        0.9849              0.2337         0.000250       
-======================================================================
-49        FC        0.9845              0.2681         0.000250       
-======================================================================
-Time     240.3 s
-```
-
-As we see, it takes slightly longer to train this model, but it does not increase the accuracy.
-In fact a smaller model with around `100k` trainable parameters 
 
 ```python
 model_fc = FC_MNIST_2(128,128)
-summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIHGT,IM_WIDTH))
+summary(model_fc,depth=3,input_size=(BATCH_SIZE,IM_HIGHT,IM_WIDTH))
 ```
 
 <span style="color: grey;">Out:</span>
@@ -433,7 +437,10 @@ Epoch     Model     Test Accuracy       Test Loss      LR
 Time     109.1 s
 ```
 
-However, the lesson is simple: without augmenting the data set, fully connected two-layer neural networks will plato around `98.6%`
+
+#### Lesson learned
+
+Fully connected two-layer networks can achieve strong performance on MNIST. However, their parameter count grows rapidly with the hidden layer size. Moreover, even models with hundreds of thousands of parameters plateau around `98.5-98.6%` percent accuracy without data augmentation.
 
 
 ![MNIST_ACC_LOSS]({{ "../assets/images/MNIST_FC.png" | relative_url }})
@@ -442,47 +449,16 @@ However, the lesson is simple: without augmenting the data set, fully connected 
 Now we will consider convolutional neural networks
 
 
-## Convolutional
+### Convolutional neural networks
 
-We will investigate the architechture with only two convolutional layers. Even thought we can vary the filter size, we keep them always $$3 \times 3$$. Similarly, the filters for the `MaxPooling` layers are always taken $$2 \times 2$$. We will only vary the number of channels for the two convolutional layers 
-
-
+We start with a model using `(8, 8)` channels
 
 ```python
-class Conv_MNIST_21(nn.Module):
-    def __init__(self, ch1, ks1, padding1, pks1, ch2, ks2, padding2, pks2):
-        super().__init__()
-        self.p1 = padding1
-        self.p2 = padding2
-        self.ks1 = ks1
-        self.ks2 = ks2
-        self.pks1 = pks1
-        self.pks2 = pks2
-        self.ch2 = ch2
-        self.last = int(((IM_HIHGT+2*self.p1+1-self.ks1)/self.pks1+2*self.p2+1-self.ks2)/self.pks2)**2*ch2
-        self.box = nn.Sequential(
-            nn.Conv2d(IM_CH, ch1, kernel_size=(ks1, ks1), padding=padding1),
-            nn.ReLU(),
-            nn.MaxPool2d(pks1),
-            nn.Conv2d(ch1, ch2, kernel_size=(ks2, ks2), padding=padding2),
-            nn.ReLU(),
-            nn.MaxPool2d(pks2),
-            nn.Flatten(),
-            nn.Linear(self.last,NUM_CLASSES)
-        )
-    def forward(self, x):
-        x = self.box(x)
-        return x
-```
-
-
-We start with `(8, 8)`
-
-```python
-model_conv=Conv_MNIST_21(8,3,1,2,8,3,1,2)
+model_conv=Conv_MNIST_21(8,8)
 ```
 
 The training results in
+
 <span style="color: grey;">Out:</span>
 ```text
 ======================================================================
@@ -500,10 +476,10 @@ Time     245.2 s
 ```
 
 
-We can see that the model
+This model has only around `4.5k` trainable parameters, as shown below, an order of magnitude less than the fully connected network with a comparable accuracy.
 
 ```python
-summary(model_conv,depth=3,input_size=(BATCH_SIZE,1,IM_HIHGT,IM_WIDTH))
+summary(model_conv,depth=3,input_size=(BATCH_SIZE,1,IM_HIGHT,IM_WIDTH))
 ```
 
 
@@ -535,15 +511,17 @@ Estimated Total Size (MB): 4.24
 ==========================================================================================
 ```
 
-only has around `4.5k` trainable parameters, an order of magnitude less than the fully connected network with a comparable accuracy.
 
 
-However, the convolutional neural network can do even better. Let's increase the number of channels in the second layer. The logic behind is that as the resolutiond drops due to `MaxPool` layers, we should increase the nymber of channels in order to preserve the representability of the model.
 
-For the following model
+However, the convolutional neural network can do even better. Let's increase the number of channels in the second layer following the
+#### <span style="color: red;">Design principle:</span>
+As spatial resolution decreases due to pooling, the number of channels should increase. This compensates for the loss of spatial detail by increasing the representational capacity along the feature dimension.
+
+For the model
 
 ```python
-model_conv=Conv_MNIST_21(32,3,1,2,64,3,1,2)
+model_conv=Conv_MNIST_21(32,64)
 ```
 
 <span style="color: grey;">Out:</span>
@@ -591,11 +569,21 @@ Epoch     Model     Test Accuracy       Test Loss      Learning Rate
 Time     460.6 s
 ```
 
-
-
-
 ![MNIST_ACC_LOSS_CONV]({{ "../assets/images/MNIST_CNN.png" | relative_url }})
 
+We can acheive an accuracy of around `99 - 99.1%` even with smaller models, but this one consistently acheives an accuracy of around `99.2 - 99.3%`
+
+## Conclusion
+
+Convolutional neural networks achieve higher accuracy than fully connected networks on `MNIST` while using significantly fewer parameters. Even relatively small CNNs outperform larger fully connected models. The key advantage comes from exploiting spatial structure.
 
 
-We can acheive accuracy around `99 - 99.1%` even for smaller models but this one allows for results consistently with accuracy around `99.2 - 99.3%`
+| Model         |  Parameters | Accuracy | Time |
+| ------------- | 
+| FC(1, 1)    |              807        | ~37.6%        | 36 s     
+| FC(128, 128) |          118k       | ~98.5%        | 109 s         
+| FC(512, 512) |          670k       | ~98.6%        | 172 s
+| CNN(8, 8) |              4.6k       | ~98.7%        | 245 s 
+| CNN(32, 64) |            50k        | ~99.2%        | 461 s
+
+
