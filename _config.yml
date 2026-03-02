@@ -24,6 +24,5 @@ kramdown:
   fenced_code_blocks: true
 
 header_pages:
-  - index.md
   - physics/index.md
   - ML/index.md
